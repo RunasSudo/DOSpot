@@ -20,10 +20,15 @@
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-class DOSpot:
-	def __init__(self, fin, fout):
+import threading
+
+class DOSpot(threading.Thread):
+	def __init__(self, fin, fout, islocal=False):
+		super().__init__(daemon=True)
+		
 		self.fin = fin
 		self.fout = fout
+		self.islocal = islocal
 		
 		self.currdrv = 'C'
 		self.currdir = []
@@ -40,12 +45,37 @@ class DOSpot:
 		self.c_echo = True
 	
 	def print(self, *args, **kwargs):
+		if not self.islocal:
+			kwargs['end'] = kwargs['end'] if 'end' in kwargs else '\r\n'
 		return print(*args, **kwargs, file=self.fout)
 	
 	def input(self, prompt):
 		self.print(prompt, end='')
 		self.fout.flush()
-		return self.fin.readline().rstrip('\n')
+		
+		if self.islocal:
+			return self.fin.readline().rstrip('\n')
+		else:
+			buf = ''
+			while True:
+				char = self.fin.read(1).decode('ascii')
+				byte = ord(char)
+				#print(byte)
+				if char == '\r': # enter
+					self.print()
+					break
+				elif byte == 0x7F: # backspace
+					if len(buf) > 0:
+						self.print('\b \b', end='') # dodgy af
+						buf = buf[:-1]
+				elif byte >= 0x00 and byte <= 0x1F: # ASCII control
+					hr = '^' + chr(byte + 64)
+					self.print(hr, end='')
+					buf += hr
+				elif byte >= 0x20 and byte <= 0x7E: # printable
+					self.print(char, end='')
+					buf += char
+			return buf
 	
 	def run(self):
 		self.print('MS-DOS Version 4.01')
@@ -119,5 +149,5 @@ class DOSpot:
 
 if __name__ == '__main__':
 	import sys
-	dospot = DOSpot(sys.stdin, sys.stdout)
+	dospot = DOSpot(sys.stdin, sys.stdout, True)
 	dospot.run()
