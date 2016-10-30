@@ -141,6 +141,9 @@ class DOSpot(threading.Thread):
 							self.print('Access denied')
 					else:
 						self.print('File not found')
+				elif cmd == 'ver':
+					self.print()
+					self.print('MS-DOS Version 4.01')
 				else:
 					self.print('Bad command or file name')
 				
