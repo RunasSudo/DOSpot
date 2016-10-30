@@ -35,11 +35,11 @@ class DOSpot(threading.Thread):
 		
 		self.roottree = {
 			'DOS': {},
-			'AUTOEXEC.BAT': True,
-			'COMMAND.COM': True,
-			'CONFIG.SYS': True,
-			#'IO.SYS': True,
-			#'MSDOS.SYS': True
+			'AUTOEXEC.BAT': 97,
+			'COMMAND.COM': 37557,
+			'CONFIG.SYS': 68,
+			#'IO.SYS': 33337,
+			#'MSDOS.SYS': 37376
 		}
 		
 		self.c_echo = True
@@ -125,7 +125,7 @@ class DOSpot(threading.Thread):
 						if type(value) == dict:
 							self.print('{:<8}     <DIR>     04-07-89  12:00a'.format(item))
 						else:
-							self.print('{:<8} {:<3} --------- 04-07-89  12:00a'.format(*item.split('.')))
+							self.print('{:<8} {:<3} {:>9} 04-07-89  12:00a'.format(*item.split('.'), value))
 						num += 1
 					
 					self.print('{:>9} File(s) {:>10} bytes free'.format(num, '31141889'))
