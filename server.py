@@ -86,9 +86,9 @@ while True:
 		fin = chan.makefile('r')
 		fout = chan.makefile('w')
 		
-		dospot = dos.DOSpot(fin, fout)
-		#dospot.start()
-		dospot.run()
+		dospot = dos.DOSpot(fin, fout, client)
+		dospot.start()
+		#dospot.run()
 	except Exception as ex:
 		import traceback; traceback.print_exc()
 		client.close()

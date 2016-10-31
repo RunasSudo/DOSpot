@@ -28,12 +28,12 @@ class DOSException(Exception):
 		super().__init__(message)
 
 class DOSpot(threading.Thread):
-	def __init__(self, fin, fout, islocal=False):
+	def __init__(self, fin, fout, client):
 		super().__init__(daemon=True)
 		
 		self.fin = fin
 		self.fout = fout
-		self.islocal = islocal
+		self.client = client
 		
 		self.currdrv = 'C'
 		self.currdir = []
@@ -50,7 +50,7 @@ class DOSpot(threading.Thread):
 		self.c_echo = True
 	
 	def print(self, *args, **kwargs):
-		if not self.islocal:
+		if self.client is not None:
 			kwargs['end'] = kwargs['end'] if 'end' in kwargs else '\r\n'
 		return print(*args, **kwargs, file=self.fout)
 	
@@ -58,7 +58,7 @@ class DOSpot(threading.Thread):
 		self.print(prompt, end='')
 		self.fout.flush()
 		
-		if self.islocal:
+		if self.client is None:
 			try:
 				return self.fin.readline().rstrip('\n')
 			except KeyboardInterrupt as ex:
@@ -176,7 +176,7 @@ class DOSpot(threading.Thread):
 			try:
 				source = checkpath(resolvepath(args[1].split('\\')))
 			except DOSException as ex:
-				raise DOSException('{} - {}\n        0 File(s) copied'.format(ex.message, args[1].upper()))
+				raise DOSException('{} - {}\r\n        0 File(s) copied'.format(ex.message, args[1].upper()))
 			
 			if len(args) > 2:
 				dir_ = args[2].split('\\')
@@ -190,10 +190,10 @@ class DOSpot(threading.Thread):
 			except DOSException as ex:
 				if ex.message == 'File not found':
 					# copy the file
-					raise DOSException('Access denied - {}\n        0 File(s) copied'.format(destname.upper()))
+					raise DOSException('Access denied - {}\r\n        0 File(s) copied'.format(destname.upper()))
 				raise DOSException('{} - {}\n        0 File(s) copied'.format(ex.message, args[2].upper()))
 			# overwrite the file
-			raise DOSException('Access denied - {}\n        0 File(s) copied'.format(destname.upper()))
+			raise DOSException('Access denied - {}\r\n        0 File(s) copied'.format(destname.upper()))
 		
 		def cmd_del(s, args, cmd):
 			dir_ = resolvepath(args[1].split('\\'))
@@ -317,7 +317,7 @@ VER      Displays the MS-DOS version.""")
 		def cmd_rmdir(s, args, cmd):
 			dir_ = resolvepath(args[1].split('\\'))
 			
-			raise DOSException('Invalid path, not directory,\nor directory not empty.')
+			raise DOSException('Invalid path, not directory,\r\nor directory not empty.')
 		
 		def cmd_ver(s, args, cmd):
 			self.print()
@@ -347,12 +347,15 @@ VER      Displays the MS-DOS version.""")
 					else:
 						self.print('Bad command or file name')
 				except DOSException as ex:
-					print(ex)
+					self.print(ex)
 				
 				if self.c_echo:
 					self.print()
+		
+		if self.client is not None:
+			self.client.close()
 
 if __name__ == '__main__':
 	import sys
-	dospot = DOSpot(sys.stdin, sys.stdout, True)
+	dospot = DOSpot(sys.stdin, sys.stdout, None)
 	dospot.run()
