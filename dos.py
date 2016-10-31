@@ -59,7 +59,11 @@ class DOSpot(threading.Thread):
 		self.fout.flush()
 		
 		if self.islocal:
-			return self.fin.readline().rstrip('\n')
+			try:
+				return self.fin.readline().rstrip('\n')
+			except KeyboardInterrupt as ex:
+				self.running = False
+				return ''
 		else:
 			buf = ''
 			while True:
@@ -88,18 +92,22 @@ class DOSpot(threading.Thread):
 		def pwd(drv=self.currdrv, dir_=self.currdir):
 			return '{}:\\{}'.format(drv, '\\'.join(dir_)).upper()
 		
-		def traverse(path, tree=self.roottree):
+		def checkpath(path, tree=self.roottree):
 			if len(path) == 0:
 				return tree
+			if type(tree) != dict:
+				raise DOSException('Access denied')
 			if path[0].upper() in tree:
-				return traverse(path[1:], tree[path[0].upper()])
-			return False
+				return checkpath(path[1:], tree[path[0].upper()])
+			if len(path) > 1:
+				raise DOSException('Path not found')
+			raise DOSException('File not found')
 		
-		def checkpath(path, tree=self.roottree):
-			if traverse(path, tree) is False:
-				raise DOSException('File not found')
-			
-			return True
+		def traverse(path, tree=self.roottree):
+			try:
+				return checkpath(path, tree)
+			except DOSException as ex:
+				return False
 		
 		def resolvepath(path):
 			dir_ = []
@@ -128,14 +136,68 @@ class DOSpot(threading.Thread):
 			return dir_
 		
 		
+		def cmd_attrib(s, args, cmd):
+			path = None
+			flags = []
+			for arg in args[1:]:
+				if arg.startswith('+') or arg.startswith('-'):
+					flags.append(arg)
+				elif path is None:
+					path = arg
+				else:
+					raise DOSException('Invalid parameter - {}'.format(arg.upper()))
+			if path is None:
+				raise DOSException('Required parameter missing')
+			
+			try:
+				target = checkpath(resolvepath(path.split('\\')))
+			except DOSException as ex:
+				raise DOSException('{} - {}'.format(ex.message, path.upper()))
+			
+			if type(target) == dict:
+				raise DOSException('File not found - {}'.format(path.upper()))
+			elif len(flags) == 0:
+				self.print('  A    R     {}'.format(pwd(self.currdrv, resolvepath(path.split('\\')))))
+			else:
+				raise DOSException('Access denied - {}'.format(path.upper()))
+		
 		def cmd_cd(s, args, cmd):
 			dir_ = resolvepath(args[1].split('\\'))
-			checkexists(dir_)
+			checkpath(dir_)
 			currdir = dir_
+		
+		def cmd_command(s, args, cmd):
+			pass
+		
+		def cmd_copy(s, args, cmd):
+			if len(args) == 1:
+				raise DOSException('Required parameter missing')
+			
+			try:
+				source = checkpath(resolvepath(args[1].split('\\')))
+			except DOSException as ex:
+				raise DOSException('{} - {}\n        0 File(s) copied'.format(ex.message, args[1].upper()))
+			
+			if len(args) > 2:
+				dir_ = args[2].split('\\')
+				destname = args[2]
+			else:
+				dir_ = self.currdir + [args[1].split('\\')[-1]]
+				destname = args[1].split('\\')[-1]
+			
+			try:
+				dest = checkpath(resolvepath(dir_))
+			except DOSException as ex:
+				if ex.message == 'File not found':
+					# copy the file
+					raise DOSException('Access denied - {}\n        0 File(s) copied'.format(destname.upper()))
+				raise DOSException('{} - {}\n        0 File(s) copied'.format(ex.message, args[2].upper()))
+			# overwrite the file
+			raise DOSException('Access denied - {}\n        0 File(s) copied'.format(destname.upper()))
 		
 		def cmd_del(s, args, cmd):
 			dir_ = resolvepath(args[1].split('\\'))
-			checkexists(dir_)
+			checkpath(dir_)
 			
 			target = traverse(dir_)
 			if type(target) == dict:
@@ -147,6 +209,9 @@ class DOSpot(threading.Thread):
 				raise DOSException('Access denied')
 		
 		def cmd_dir(s, args, cmd):
+			if len(args) > 2:
+				raise DOSException('Too many parameters - {}'.format(args[2]))
+			
 			try:
 				dir_ = resolvepath(args[1].split('\\')) if len(args) > 1 else self.currdir
 			except DOSException as ex:
@@ -164,7 +229,17 @@ class DOSpot(threading.Thread):
 			self.print(' Volume in drive {} is ROOTDISK'.format(self.currdrv))
 			self.print(' Volume Serial Number is 2958-0B1B')
 			
-			if traverse(dir_) is not False:
+			if traverse(dir_) is False:
+				try:
+					checkpath(dir_)
+				except DOSException as ex:
+					if ex.message == 'File not found':
+						self.print(' Directory of  {}'.format(pwd(self.currdrv, dir_[:-1])))
+						self.print()
+						raise ex
+					else:
+						raise ex
+			elif type(traverse(dir_)) == dict:
 				self.print(' Directory of  {}'.format(pwd(self.currdrv, dir_)))
 				self.print()
 				
@@ -182,12 +257,13 @@ class DOSpot(threading.Thread):
 				
 				self.print('{:>9} File(s) {:>10} bytes free'.format(num, '31141889'))
 			else:
-				if traverse(dir_[:-1]) is False:
-					raise DOSException('Path not found')
+				self.print(' Directory of  {}'.format(pwd(self.currdrv, dir_[:-1])))
+				self.print()
+				if type(traverse(dir_)) == dict:
+					self.print('{:<8}     <DIR>     04-07-89  12:00a'.format(dir_[-1].upper()))
 				else:
-					self.print(' Directory of  {}'.format(pwd(self.currdrv, dir_[:-1])))
-					self.print()
-					raise DOSException('File not found')
+					self.print('{:<8} {:<3} {:>9} 04-07-89  12:00a'.format(*dir_[-1].upper().split('.'), traverse(dir_)))
+				self.print('{:>9} File(s) {:>10} bytes free'.format(1, '31141889'))
 		
 		def cmd_echo(s, args, cmd):
 			arg = s[5:]
@@ -202,14 +278,57 @@ class DOSpot(threading.Thread):
 				return
 			self.print('ECHO is {}'.format('on' if self.c_echo else 'off'))
 		
+		def cmd_exit(s, args, cmd):
+			self.running = False
+		
+		def cmd_help(s, args, cmd):
+			self.print("""ATTRIB   Displays or changes file attributes.
+CD       Displays the name of or changes the current directory.
+COMMAND  Starts a new instance of the MS-DOS command interpreter.
+COPY     Copies one or more files to another location.
+DEL      Deletes one or more files.
+DIR      Displays a list of files and subdirectories in a directory.
+ECHO     Displays messages, or turns command echoing on or off.
+ERASE    Deletes one or more files.
+EXIT     Quits the COMMAND.COM program (command interpreter).
+HELP     Provides Help information for MS-DOS commands.
+MD       Creates a directory.
+MKDIR    Creates a directory.
+RD       Removes a directory.
+RMDIR    Removes a directory.
+VER      Displays the MS-DOS version.""")
+		
+		def cmd_mkdir(s, args, cmd):
+			dir_ = resolvepath(args[1].split('\\'))
+			try:
+				target = checkpath(dir_)
+			except DOSException as ex:
+				if ex.message == 'File not found':
+					# create the directory
+					raise DOSException('Unable to create directory')
+				else:
+					raise ex
+			
+			if type(target) == dict:
+				raise DOSException('Directory already exists')
+			else:
+				raise DOSException('Unable to create directory')
+		
+		def cmd_rmdir(s, args, cmd):
+			dir_ = resolvepath(args[1].split('\\'))
+			
+			raise DOSException('Invalid path, not directory,\nor directory not empty.')
+		
 		def cmd_ver(s, args, cmd):
 			self.print()
 			self.print('MS-DOS Version 4.01')
 		
 		
-		cmds = {'cd': cmd_cd, 'del': cmd_del, 'dir': cmd_dir, 'echo': cmd_echo, 'ver': cmd_ver}
+		shl_cmds = {'cd': cmd_cd, 'copy': cmd_copy, 'del': cmd_del, 'dir': cmd_dir, 'echo': cmd_echo, 'erase': cmd_del, 'exit': cmd_exit, 'help': cmd_help, 'md': cmd_mkdir, 'mkdir': cmd_mkdir, 'rd': cmd_rmdir, 'rmdir': cmd_rmdir, 'ver': cmd_ver}
+		ext_cmds = {'attrib': cmd_attrib, 'command': cmd_command}
 		
-		while True:
+		self.running = True
+		while self.running:
 			s = self.input('{}>'.format(pwd()) if self.c_echo else '').strip()
 			
 			if len(s) > 0:
@@ -217,12 +336,14 @@ class DOSpot(threading.Thread):
 				cmd = args[0].lower()
 				
 				try:
-					if cmd in cmds:
-						cmds[cmd](s, args, cmd)
-					elif s.startswith('cd.'):
-						cmds['cd']('cd ' + s[3:], ['cd', args[0][2:]] + args[1:])
-					elif s.startswith('echo.'):
-						cmds['echo'](s, args, cmd)
+					if cmd in shl_cmds:
+						shl_cmds[cmd](s, args, cmd)
+					elif cmd in ext_cmds:
+						ext_cmds[cmd](s, args, cmd)
+					elif '.' in args[0] and args[0][:args[0].index('.')] in shl_cmds:
+							cmd = args[0][:args[0].index('.')]
+							args = [cmd] + s[len(cmd):].split()
+							shl_cmds[cmd](s, args, cmd)
 					else:
 						self.print('Bad command or file name')
 				except DOSException as ex:
